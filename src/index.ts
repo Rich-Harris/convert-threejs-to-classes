@@ -48,6 +48,8 @@ function isValid(str: string) {
 files.forEach((file: string) => {
 	const dest = file.replace('.original', '');
 
+	if (!isValid(fs.readFileSync(file, 'utf-8'))) return;
+
 	try {
 		const mod = new Module(file);
 		const output = mod.toString();

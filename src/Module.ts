@@ -30,6 +30,11 @@ const matchers = {
 	assignToPrototype: createMatcher('_ = _ObjectExpression_', m => ({
 		target: m[0],
 		source: m[1]
+	})),
+
+	assignToThree: createMatcher('THREE._Identifier_ = _FunctionExpression_', m => ({
+		target: m[0],
+		source: m[1]
 	}))
 };
 
@@ -58,6 +63,8 @@ export default class Module {
 	code: MagicString;
 	ast: any;
 
+	isExample: boolean;
+
 	superclasses: Map<string, string>;
 
 	constructors: Map<string, string>;
@@ -68,10 +75,13 @@ export default class Module {
 	constructor(file: string) {
 		this.file = file;
 		this.source = fs.readFileSync(file, 'utf-8');
+
 		this.ast = acorn.parse(this.source, {
 			ecmaVersion: 9,
 			sourceType: 'module'
 		});
+
+		this.isExample = /examples\.original/.test(file);
 
 		this.code = new MagicString(this.source);
 
@@ -101,7 +111,7 @@ export default class Module {
 
 			// _ = Object.create(_)
 			if (nodes = matchers.simplesubclass(node)) {
-				this.superclasses.set(nodes.target.name, nodes.superclass.name);
+				this.superclasses.set(this.snip(nodes.target), this.snip(nodes.superclass));
 				this.code.remove(node.start, node.end);
 			}
 
@@ -112,13 +122,13 @@ export default class Module {
 			else if (nodes = matchers.subclass(node)) {
 				const { target, superclass } = nodes;
 
-				const targetMatch = /^(\w+)(\.prototype)?$/.exec(this.snip(target));
+				const targetMatch = /^((THREE\.)?\w+)(\.prototype)?$/.exec(this.snip(target));
 				assert.ok(!!targetMatch[2]);
 				const name = targetMatch[1];
 
 				assert.equal(name[0].toUpperCase(), name[0], 'not a class');
 
-				const superclassMatch = /^(\w+)(\.prototype)?$/.exec(this.snip(superclass));
+				const superclassMatch = /^((THREE\.)?\w+)(\.prototype)?$/.exec(this.snip(superclass));
 				assert.ok(!!superclassMatch[2]);
 				const superclassName = superclassMatch[1];
 
@@ -138,11 +148,18 @@ export default class Module {
 
 			const { target, source } = nodes;
 
-			const match = /^(\w+)(\.prototype)?$/.exec(this.snip(target));
+			const match = /^((THREE\.)?\w+)(\.prototype)?$/.exec(this.snip(target));
 			if (!match) return;
 
 			const name = match[1];
 			const isStatic = !match[2];
+
+			// don't convert example code, unless it needs to be
+			// converted because of superclasses
+			const superclass = this.superclasses.get(name);
+			if (!superclass && /examples\.original/.test(this.file)) {
+				return;
+			}
 
 			let c: number = source.start + 1;
 			while (/\s/.test(this.source[c])) c += 1;
@@ -204,46 +221,126 @@ export default class Module {
 				node = node.declaration;
 			}
 
-			if (!node || node.type !== 'FunctionDeclaration') return;
-			const { name } = node.id;
+			if (!node) return;
 
-			if (name[0].toUpperCase() !== name[0]) return; // not a class
-			if (notClasses.has(name)) return;
+			if (node.type === 'FunctionDeclaration') {
+				const { name } = node.id;
+				this.overwriteConstructorBody(node, name);
+			} else {
+				const nodes = matchers.assignToThree(node);
+				if (!nodes) return;
 
-			const superclass = this.superclasses.get(name);
+				const name = nodes.target.name;
+				this.overwriteConstructorBody(nodes.source, `THREE.${name}`);
+			}
+		});
+	}
 
-			const declaration = superclass
-				? `class ${name} extends ${superclass}`
-				: `class ${name}`;
+	overwriteConstructorBody(node: any, name: string) {
+		if (name[0].toUpperCase() !== name[0]) return; // not a class
+		if (notClasses.has(name)) return;
 
-			const needsConstructor = makeValidConstructor(this.code, node, superclass);
+		// don't convert example code, unless it needs to be
+		// converted because of superclasses
+		const superclass = this.superclasses.get(name);
+		if (!superclass && /examples\.original/.test(this.file)) {
+			return;
+		}
 
-			let ctor = needsConstructor && (
+		const declaration = superclass
+			? `class ${name.replace('THREE.', '')} extends ${superclass}`
+			: `class ${name.replace('THREE.', '')}`;
+
+		const needsConstructor = this.makeValidConstructor(this.code, node, superclass);
+
+		let ctor = null;
+		if (needsConstructor) {
+			let start = node.id
+				? node.id.end
+				: node.start + 8;
+
+			while (this.code.original[start] !== '(') start += 1;
+
+			ctor = needsConstructor && (
 				`constructor ${this.code
-					.slice(node.id.end, node.body.end)
+					.slice(start, node.body.end)
 					.replace(/^\t/gm, '\t\t')
 					.replace(/^}/m, '\t}')}`
 			);
+		}
 
-			const methods = this.methods.get(name) || [];
-			const staticMethods = this.staticMethods.get(name) || [];
+		const methods = this.methods.get(name) || [];
+		const staticMethods = this.staticMethods.get(name) || [];
 
-			const combined = [ctor, ...methods, ...staticMethods]
-				.filter(Boolean)
-				.join('\n\n\t');
+		const combined = [ctor, ...methods, ...staticMethods]
+			.filter(Boolean)
+			.join('\n\n\t');
 
-			const properties = (this.properties.get(name) || []).map(prop => {
-				const lhs = prop.isStatic
-					? `${name}.${prop.key}`
-					: `${name}.prototype.${prop.key}`;
+		const properties = (this.properties.get(name) || []).map(prop => {
+			const lhs = prop.isStatic
+				? `${name}.${prop.key}`
+				: `${name}.prototype.${prop.key}`;
 
-				return `\n\n${lhs} = ${prop.value.replace(/^\t/gm, '')};`;
-			});
-
-			const body = `{\n\t${combined}\n}`;
-
-			this.code.overwrite(node.start, node.end, `${declaration} ${body}${properties.join('')}`);
+			return `\n\n${lhs} = ${prop.value.replace(/^\t/gm, '')};`;
 		});
+
+		const body = `{\n\t${combined}\n}`;
+
+		this.code.overwrite(node.start, node.end, `${declaration} ${body}${properties.join('')}`);
+	}
+
+	makeValidConstructor(code: MagicString, node: any, superclass: string) {
+		if (!superclass) return node.body.body.length > 0;
+
+		let statements = [];
+		let c = node.body.start + 1;
+
+		for (const statement of node.body.body) {
+			// if this is a `Superclass.call` expression, replace with super
+			const isSuper = (
+				statement.type === 'ExpressionStatement' &&
+				statement.expression.type === 'CallExpression' &&
+				statement.expression.callee.type === 'MemberExpression' &&
+				statement.expression.callee.property.name === 'call' &&
+				this.snip(statement.expression.callee.object) === superclass &&
+				statement.expression.arguments[0].type === 'ThisExpression'
+			);
+
+			if (isSuper) {
+				if (statement.expression.arguments.length === 1) {
+					code.overwrite(statement.expression.start, statement.expression.end, 'super()');
+				} else {
+					code.overwrite(statement.expression.callee.start, statement.expression.callee.end, 'super');
+					code.remove(statement.expression.arguments[0].start, statement.expression.arguments[1].start);
+				}
+
+				// append all `this.x` statements
+				if (statements.length > 0) {
+					statements.forEach(s => code.remove(s.start, s.end));
+					code.appendLeft(statement.end, statements.map(s => s.content).join(''));
+				}
+
+				return true;
+			}
+
+			const snippet = code.original.slice(statement.start, statement.end);
+			if (/this/.test(snippet)) {
+				statements.push({
+					start: statement.start,
+					end: statement.end,
+					content: code.original.slice(c, statement.end)
+				});
+			}
+
+			c = statement.end;
+		}
+
+		if (node.body.body.length === 0) return false;
+
+		// if we're here, we never encountered super()
+		code.prependRight(node.body.body[0].start, 'super();\n\n\t');
+
+		return true;
 	}
 
 	convert() {
@@ -259,60 +356,6 @@ export default class Module {
 	toString() {
 		return this.code.toString();
 	}
-}
-
-function makeValidConstructor(code: MagicString, node: any, superclass: string) {
-	if (!superclass) return node.body.body.length > 0;
-
-	let statements = [];
-	let c = node.body.start + 1;
-
-	for (const statement of node.body.body) {
-		// if this is a `Superclass.call` expression, replace with super
-		const isSuper = (
-			statement.type === 'ExpressionStatement' &&
-			statement.expression.type === 'CallExpression' &&
-			statement.expression.callee.type === 'MemberExpression' &&
-			statement.expression.callee.property.name === 'call' &&
-			statement.expression.callee.object.name === superclass &&
-			statement.expression.arguments[0].type === 'ThisExpression'
-		);
-
-		if (isSuper) {
-			if (statement.expression.arguments.length === 1) {
-				code.overwrite(statement.expression.start, statement.expression.end, 'super()');
-			} else {
-				code.overwrite(statement.expression.callee.start, statement.expression.callee.end, 'super');
-				code.remove(statement.expression.arguments[0].start, statement.expression.arguments[1].start);
-			}
-
-			// append all `this.x` statements
-			if (statements.length > 0) {
-				statements.forEach(s => code.remove(s.start, s.end));
-				code.appendLeft(statement.end, statements.map(s => s.content).join(''));
-			}
-
-			return true;
-		}
-
-		const snippet = code.original.slice(statement.start, statement.end);
-		if (/this/.test(snippet)) {
-			statements.push({
-				start: statement.start,
-				end: statement.end,
-				content: code.original.slice(c, statement.end)
-			});
-		}
-
-		c = statement.end;
-	}
-
-	if (node.body.body.length === 0) return false;
-
-	// if we're here, we never encountered super()
-	code.prependRight(node.body.body[0].start, 'super();\n\n\t');
-
-	return true;
 }
 
 // function needsConstructor(node: any, superclass: string) {
