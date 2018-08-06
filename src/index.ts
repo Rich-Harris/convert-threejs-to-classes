@@ -63,3 +63,8 @@ files.forEach((file: string) => {
 		console.log(err.stack);
 	}
 });
+
+glob('**/*.js', { cwd: 'overrides' }).forEach((file: string) => {
+	const data = fs.readFileSync(`overrides/${file}`);
+	fs.writeFileSync(`three.js/${file}`, data);
+});

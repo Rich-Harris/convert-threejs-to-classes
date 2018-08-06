@@ -203,27 +203,14 @@ export default class Module {
 				? `class ${name} extends ${superclass}`
 				: `class ${name}`;
 
-			let ctor = needsConstructor(node, superclass) && (
+			const needsConstructor = makeValidConstructor(this.code, node, superclass);
+
+			let ctor = needsConstructor && (
 				`constructor ${this.code
 					.slice(node.id.end, node.body.end)
-					.replace(/^/gm, '\t')
-					.replace(/(\w+)\.call\( this,/, (m, ctx) => {
-						return ctx === superclass
-							? 'super('
-							: m;
-					})
-					.replace(/(\w+)\.call\( this \)/, (m, ctx) => {
-						return ctx === superclass
-							? 'super()'
-							: m;
-					})
-					.slice(1)}`
+					.replace(/^\t/gm, '\t\t')
+					.replace(/^}/m, '\t}')}`
 			);
-
-			// super hacky
-			if (superclass && /this/.test(ctor) && !/super/.test(ctor)) {
-				ctor = ctor.replace(/\t\t/, '\t\tsuper();\n\n\t\t');
-			}
 
 			const methods = this.methods.get(name) || [];
 			const staticMethods = this.staticMethods.get(name) || [];
@@ -261,28 +248,82 @@ export default class Module {
 	}
 }
 
-function needsConstructor(node: any, superclass: string) {
-	const { body } = node.body;
+function makeValidConstructor(code: MagicString, node: any, superclass: string) {
+	if (!superclass) return node.body.body.length > 0;
 
-	if (body.length === 0) return false;
-	if (body.length > 1) return true;
+	let statements = [];
+	let c = node.body.start + 1;
 
-	const statement = body[0];
-	if (statement.type !== 'ExpressionStatement') return true;
-	if (statement.expression.type !== 'CallExpression') return true;
+	for (const statement of node.body.body) {
+		// if this is a `Superclass.call` expression, replace with super
+		const isSuper = (
+			statement.type === 'ExpressionStatement' &&
+			statement.expression.type === 'CallExpression' &&
+			statement.expression.callee.type === 'MemberExpression' &&
+			statement.expression.callee.property.name === 'call' &&
+			statement.expression.callee.object.name === superclass &&
+			statement.expression.arguments[0].type === 'ThisExpression'
+		);
 
-	const { callee } = statement.expression;
-	if (callee.type !== 'MemberExpression') return true;
+		if (isSuper) {
+			if (statement.expression.arguments.length === 1) {
+				code.overwrite(statement.expression.start, statement.expression.end, 'super()');
+			} else {
+				code.overwrite(statement.expression.callee.start, statement.expression.callee.end, 'super');
+				code.remove(statement.expression.arguments[0].start, statement.expression.arguments[1].start);
+			}
 
-	if (callee.property.name !== 'call') return true;
-	if (callee.object.name !== superclass) return true;
+			// append all `this.x` statements
+			if (statements.length > 0) {
+				statements.forEach(s => code.remove(s.start, s.end));
+				code.appendLeft(statement.end, statements.map(s => s.content).join(''));
+			}
 
-	if (statement.expression.arguments[0].type !== 'ThisExpression') return true;
+			return true;
+		}
 
-	const params = node.params;
-	const args = statement.expression.arguments.slice(1);
+		const snippet = code.original.slice(statement.start, statement.end);
+		if (/this/.test(snippet)) {
+			statements.push({
+				start: statement.start,
+				end: statement.end,
+				content: code.original.slice(c, statement.end)
+			});
+		}
 
-	if (args.some((arg: any) => arg.type !== 'Identifier')) return true;
+		c = statement.end;
+	}
 
-	return params.map((p: any) => p.name).join(',') !== args.map((p: any) => p.name).join(',');
+	if (node.body.body.length === 0) return false;
+
+	// if we're here, we never encountered super()
+	code.prependRight(node.body.body[0].start, 'super();\n\n\t');
+
+	return true;
 }
+
+// function needsConstructor(node: any, superclass: string) {
+// 	const { body } = node.body;
+
+// 	if (body.length === 0) return false;
+// 	if (body.length > 1) return true;
+
+// 	const statement = body[0];
+// 	if (statement.type !== 'ExpressionStatement') return true;
+// 	if (statement.expression.type !== 'CallExpression') return true;
+
+// 	const { callee } = statement.expression;
+// 	if (callee.type !== 'MemberExpression') return true;
+
+// 	if (callee.property.name !== 'call') return true;
+// 	if (callee.object.name !== superclass) return true;
+
+// 	if (statement.expression.arguments[0].type !== 'ThisExpression') return true;
+
+// 	const params = node.params;
+// 	const args = statement.expression.arguments.slice(1);
+
+// 	if (args.some((arg: any) => arg.type !== 'Identifier')) return true;
+
+// 	return params.map((p: any) => p.name).join(',') !== args.map((p: any) => p.name).join(',');
+// }
