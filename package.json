@@ -1,0 +1,25 @@
+{
+	"name": "convert-threejs-to-classes",
+	"version": "0.0.1",
+	"author": "Rich Harris",
+	"scripts": {
+		"convert": "node dist",
+		"preconvert": "npm run build",
+		"build": "rollup -c",
+		"dev": "rollup -cw",
+		"pull": "rm -rf three.js && git clone git@github.com:mrdoob/three.js.git && cp -r three.js/src three.js/src.original"
+	},
+	"devDependencies": {
+		"rollup": "^0.63.5",
+		"rollup-plugin-commonjs": "^9.1.4",
+		"rollup-plugin-node-resolve": "^3.3.0",
+		"rollup-plugin-typescript": "^0.8.1",
+		"typescript": "^3.0.1"
+	},
+	"dependencies": {
+		"acorn": "^5.7.1",
+		"estree-walker": "^0.5.2",
+		"magic-string": "^0.25.0",
+		"tiny-glob": "^0.2.2"
+	}
+}
