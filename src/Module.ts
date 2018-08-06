@@ -81,21 +81,7 @@ export default class Module {
 			const isStatic = !match[2];
 
 			let c: number = source.start + 1;
-
-			// remove constructor
-			const index = source.properties.findIndex(prop => prop.key.name === 'constructor');
-			assert.ok(index <= 0);
-			if (index === 0) {
-				assert.ok(source.properties.length > 1);
-				const prop = source.properties.shift();
-
-				this.code.remove(prop.start, source.properties[1].start);
-				c = prop.end + 1;
-			}
-
 			while (/\s/.test(this.source[c])) c += 1;
-
-			// check we're actually assigning methods
 
 			source.properties.forEach(prop => {
 				if (prop.value.type === 'FunctionExpression') {
@@ -121,7 +107,7 @@ export default class Module {
 					}
 				}
 
-				else {
+				else if (prop.key.name !== 'constructor') {
 					if (!this.properties.has(name)) {
 						this.properties.set(name, []);
 					}
