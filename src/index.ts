@@ -24,9 +24,9 @@ const regex = process.argv[2]
 	: /./;
 
 const blacklist = new Set([
-	'math/Vector3.js',
-	'math/Quaternion.js',
-	'math/Box3.js'
+	'three.js/src.original/math/Vector3.js',
+	'three.js/src.original/math/Quaternion.js',
+	'three.js/src.original/math/Box3.js'
 ]);
 
 const files = glob('three.js/src.original/**/*.js',)
