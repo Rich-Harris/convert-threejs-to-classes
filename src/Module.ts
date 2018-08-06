@@ -2,6 +2,7 @@ import MagicString from "../node_modules/magic-string";
 import * as assert from 'assert';
 import * as fs from "fs";
 import * as acorn from 'acorn';
+import { walk } from 'estree-walker';
 import { createMatcher } from "./match";
 
 const matchers = {
@@ -26,6 +27,25 @@ const matchers = {
 		superclass: m[1]
 	}))
 };
+
+const notClasses = new Set([
+	'String',
+	'QuadraticBezier',
+	'QuadraticBezierP0',
+	'QuadraticBezierP1',
+	'QuadraticBezierP2',
+	'CubicBezierP0',
+	'CubicBezierP1',
+	'CubicBezierP2',
+	'CubicBezierP3',
+	'CubicBezier',
+	'CatmullRom',
+	'Number',
+	'SRGBToLinear',
+	'LinearToSRGB',
+	'Object',
+	'WebGLShader'
+]);
 
 export default class Module {
 	file: string;
@@ -175,6 +195,7 @@ export default class Module {
 			const { name } = node.id;
 
 			if (name[0].toUpperCase() !== name[0]) return; // not a class
+			if (notClasses.has(name)) return;
 
 			const superclass = this.superclasses.get(name);
 
@@ -187,12 +208,14 @@ export default class Module {
 					.slice(node.id.end, node.body.end)
 					.replace(/^/gm, '\t')
 					.replace(/(\w+)\.call\( this,/, (m, ctx) => {
-						// assert.equal(ctx, superclass);
-						return 'super(';
+						return ctx === superclass
+							? 'super('
+							: m;
 					})
 					.replace(/(\w+)\.call\( this \)/, (m, ctx) => {
-						// assert.equal(ctx, superclass);
-						return 'super()';
+						return ctx === superclass
+							? 'super()'
+							: m;
 					})
 					.slice(1)}`
 			);
@@ -256,8 +279,10 @@ function needsConstructor(node: any, superclass: string) {
 
 	if (statement.expression.arguments[0].type !== 'ThisExpression') return true;
 
-	const params = node.params.map((p: any) => p.name);
-	const args = statement.expression.arguments.slice(1).map((p: any) => p.name);
+	const params = node.params;
+	const args = statement.expression.arguments.slice(1);
 
-	return params.join(',') !== args.join(',');
+	if (args.some((arg: any) => arg.type !== 'Identifier')) return true;
+
+	return params.map((p: any) => p.name).join(',') !== args.map((p: any) => p.name).join(',');
 }
