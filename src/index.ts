@@ -29,7 +29,7 @@ const blacklist = new Set([
 	'math/Box3.js'
 ]);
 
-const files = glob('**/*.js', { cwd: SRC })
+const files = glob('three.js/*.original/**/*.js',)
 	.filter((file: string) => !blacklist.has(file))
 	.filter((file: string) => regex.test(file));
 
@@ -46,20 +46,22 @@ function isValid(str: string) {
 }
 
 files.forEach((file: string) => {
+	const dest = file.replace('.original', '');
+
 	try {
-		const mod = new Module(`${SRC}/${file}`);
+		const mod = new Module(file);
 		const output = mod.toString();
 
-		fs.writeFileSync(`${DEST}/${file}`, output);
+		fs.writeFileSync(dest, output);
 
 		if (isValid(output)) {
-			console.log(`${c.bold.green('✔')} ${file}`);
+			console.log(`${c.bold.green('✔')} ${dest}`);
 		} else {
-			console.log(c.bold.red(`! ${file}`));
+			console.log(c.bold.red(`! ${dest}`));
 			console.log(`Generated invalid code`);
 		}
 	} catch (err) {
-		console.log(c.bold.red(`! ${file}`));
+		console.log(c.bold.red(`! ${dest}`));
 		console.log(err.stack);
 	}
 });

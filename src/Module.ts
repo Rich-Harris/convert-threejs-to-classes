@@ -75,7 +75,10 @@ export default class Module {
 
 		this.code = new MagicString(this.source);
 
-		this.superclasses = new Map();
+		this.superclasses = new Map([
+			['StructuredUniform', 'UniformContainer'], // saves us a job later
+			['WebGLUniforms', 'UniformContainer']
+		]);
 		this.methods = new Map();
 		this.staticMethods = new Map();
 		this.constructors = new Map();
