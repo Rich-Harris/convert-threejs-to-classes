@@ -23,7 +23,15 @@ const regex = process.argv[2]
 	? createRegex(process.argv[2])
 	: /./;
 
-const files = glob('**/*.js', { cwd: SRC }).filter(file => regex.test(file));
+const blacklist = new Set([
+	'math/Vector3.js',
+	'math/Quaternion.js',
+	'math/Box3.js'
+]);
+
+const files = glob('**/*.js', { cwd: SRC })
+	.filter((file: string) => !blacklist.has(file))
+	.filter((file: string) => regex.test(file));
 
 function isValid(str: string) {
 	try {

@@ -14,6 +14,16 @@ const matchers = {
 		target: m[0],
 		superclass: m[1],
 		source: m[2]
+	})),
+
+	simplesubclass: createMatcher('_.prototype = Object.create(_.prototype)', m => ({
+		target: m[0],
+		superclass: m[1]
+	})),
+
+	setconstructor: createMatcher('_.prototype.constructor = _', m => ({
+		target: m[0],
+		superclass: m[1]
 	}))
 };
 
@@ -28,7 +38,7 @@ export default class Module {
 	constructors: Map<string, string>;
 	methods: Map<string, string[]>;
 	staticMethods: Map<string, string[]>;
-	properties: Map<string, Array<{ key: string, value: string }>>;
+	properties: Map<string, Array<{ key: string, value: string, isStatic?: boolean }>>;
 
 	constructor(file: string) {
 		this.file = file;
@@ -49,22 +59,43 @@ export default class Module {
 		this.convert();
 	}
 
+	addSuperclass(name: string, superclass: string) {
+		const existing = this.superclasses.get(name);
+		if (existing) assert.equal(superclass, existing);
+		assert.notEqual(name, superclass);
+
+		this.superclasses.set(name, superclass);
+	}
+
 	findSuperclasses() {
 		this.ast.body.forEach(node => {
-			// AnimationMixer.prototype = Object.assign( Object.create( EventDispatcher.prototype ), {
-			const nodes = matchers.subclass(node);
-			if (!nodes) return;
+			let nodes;
 
-			const { target, superclass, source } = nodes;
+			// _ = Object.create(_)
+			if (nodes = matchers.simplesubclass(node)) {
+				this.superclasses.set(nodes.target.name, nodes.superclass.name);
+				this.code.remove(node.start, node.end);
+			}
 
-			const match = /^(\w+)(\.prototype)?$/.exec(this.snip(target));
-			assert.ok(!!match[2]);
+			if (nodes = matchers.setconstructor(node)) {
+				this.code.remove(node.start, node.end);
+			}
 
-			const name = match[1];
+			if (nodes = matchers.subclass(node)) {
+				const { target, superclass } = nodes;
 
-			if (name[0].toUpperCase() !== name[0]) return; // not a class
+				const targetMatch = /^(\w+)(\.prototype)?$/.exec(this.snip(target));
+				assert.ok(!!targetMatch[2]);
+				const name = targetMatch[1];
 
-			this.superclasses.set(name, superclass.name);
+				assert.equal(name[0].toUpperCase(), name[0], 'not a class');
+
+				const superclassMatch = /^(\w+)(\.prototype)?$/.exec(this.snip(superclass));
+				assert.ok(!!superclassMatch[2]);
+				const superclassName = superclassMatch[1];
+
+				this.superclasses.set(name, superclassName);
+			}
 		});
 	}
 
@@ -114,6 +145,7 @@ export default class Module {
 
 					this.properties.get(name).push({
 						key: prop.key.name,
+						isStatic,
 						value: this.source.slice(prop.value.start, prop.value.end)
 					});
 
@@ -150,23 +182,42 @@ export default class Module {
 				? `class ${name} extends ${superclass}`
 				: `class ${name}`;
 
-			const constructorArgsAndBody = this.code
-				.slice(node.id.end, node.body.end)
-				.replace(/^/gm, '\t')
-				.slice(1);
+			let ctor = needsConstructor(node, superclass) && (
+				`constructor ${this.code
+					.slice(node.id.end, node.body.end)
+					.replace(/^/gm, '\t')
+					.replace(/(\w+)\.call\( this,/, (m, ctx) => {
+						// assert.equal(ctx, superclass);
+						return 'super(';
+					})
+					.replace(/(\w+)\.call\( this \)/, (m, ctx) => {
+						// assert.equal(ctx, superclass);
+						return 'super()';
+					})
+					.slice(1)}`
+			);
+
+			// super hacky
+			if (superclass && /this/.test(ctor) && !/super/.test(ctor)) {
+				ctor = ctor.replace(/\t\t/, '\t\tsuper();\n\n\t\t');
+			}
 
 			const methods = this.methods.get(name) || [];
 			const staticMethods = this.staticMethods.get(name) || [];
 
-			const combined = [...methods, ...staticMethods]
+			const combined = [ctor, ...methods, ...staticMethods]
 				.filter(Boolean)
 				.join('\n\n\t');
 
 			const properties = (this.properties.get(name) || []).map(prop => {
-				return `\n\n${name}.prototype.${prop.key} = ${prop.value.replace(/^\t/gm, '')};`;
+				const lhs = prop.isStatic
+					? `${name}.${prop.key}`
+					: `${name}.prototype.${prop.key}`;
+
+				return `\n\n${lhs} = ${prop.value.replace(/^\t/gm, '')};`;
 			});
 
-			const body = `{\n\tconstructor ${constructorArgsAndBody}\n\n\t${combined}\n}`;
+			const body = `{\n\t${combined}\n}`;
 
 			this.code.overwrite(node.start, node.end, `${declaration} ${body}${properties.join('')}`);
 		});
@@ -185,4 +236,28 @@ export default class Module {
 	toString() {
 		return this.code.toString();
 	}
+}
+
+function needsConstructor(node: any, superclass: string) {
+	const { body } = node.body;
+
+	if (body.length === 0) return false;
+	if (body.length > 1) return true;
+
+	const statement = body[0];
+	if (statement.type !== 'ExpressionStatement') return true;
+	if (statement.expression.type !== 'CallExpression') return true;
+
+	const { callee } = statement.expression;
+	if (callee.type !== 'MemberExpression') return true;
+
+	if (callee.property.name !== 'call') return true;
+	if (callee.object.name !== superclass) return true;
+
+	if (statement.expression.arguments[0].type !== 'ThisExpression') return true;
+
+	const params = node.params.map((p: any) => p.name);
+	const args = statement.expression.arguments.slice(1).map((p: any) => p.name);
+
+	return params.join(',') !== args.join(',');
 }
