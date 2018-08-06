@@ -7,7 +7,7 @@
 		"preconvert": "npm run build",
 		"build": "rollup -c",
 		"dev": "rollup -cw",
-		"pull": "rm -rf three.js && git clone git@github.com:mrdoob/three.js.git && cp -r three.js/src three.js/src.original",
+		"pull": "rm -rf three.js && git clone git@github.com:mrdoob/three.js.git && cp -r three.js/src three.js/src.original && cp -r three.js/examples three.js/examples.original",
 		"test": "(cd three.js && npm test)",
 		"pretest": "npm run convert"
 	},
