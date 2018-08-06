@@ -10,6 +10,7 @@
 		"pull": "rm -rf three.js && git clone git@github.com:mrdoob/three.js.git && cp -r three.js/src three.js/src.original"
 	},
 	"devDependencies": {
+		"ansi-colors": "^2.0.5",
 		"rollup": "^0.63.5",
 		"rollup-plugin-commonjs": "^9.1.4",
 		"rollup-plugin-node-resolve": "^3.3.0",
@@ -20,6 +21,7 @@
 		"acorn": "^5.7.1",
 		"estree-walker": "^0.5.2",
 		"magic-string": "^0.25.0",
+		"source-map-support": "^0.5.6",
 		"tiny-glob": "^0.2.2"
 	}
 }
