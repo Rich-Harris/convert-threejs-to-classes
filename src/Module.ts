@@ -25,6 +25,11 @@ const matchers = {
 	setconstructor: createMatcher('_.prototype.constructor = _', m => ({
 		target: m[0],
 		superclass: m[1]
+	})),
+
+	assignToPrototype: createMatcher('_ = _ObjectExpression_', m => ({
+		target: m[0],
+		source: m[1]
 	}))
 };
 
@@ -97,11 +102,11 @@ export default class Module {
 				this.code.remove(node.start, node.end);
 			}
 
-			if (nodes = matchers.setconstructor(node)) {
+			else if (nodes = matchers.setconstructor(node)) {
 				this.code.remove(node.start, node.end);
 			}
 
-			if (nodes = matchers.subclass(node)) {
+			else if (nodes = matchers.subclass(node)) {
 				const { target, superclass } = nodes;
 
 				const targetMatch = /^(\w+)(\.prototype)?$/.exec(this.snip(target));
@@ -121,12 +126,17 @@ export default class Module {
 
 	findAndConvertMethods() {
 		this.ast.body.forEach(node => {
-			const nodes = matchers.assign(node) || matchers.subclass(node);
+			const nodes = (
+				matchers.assign(node) ||
+				matchers.assignToPrototype(node) ||
+				matchers.subclass(node)
+			);
 			if (!nodes) return;
 
 			const { target, source } = nodes;
 
 			const match = /^(\w+)(\.prototype)?$/.exec(this.snip(target));
+			if (!match) return;
 
 			const name = match[1];
 			const isStatic = !match[2];
