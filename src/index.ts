@@ -29,7 +29,7 @@ const blacklist = new Set([
 	'math/Box3.js'
 ]);
 
-const files = glob('three.js/*.original/**/*.js',)
+const files = glob('three.js/src.original/**/*.js',)
 	.filter((file: string) => !blacklist.has(file))
 	.filter((file: string) => regex.test(file));
 
@@ -48,7 +48,10 @@ function isValid(str: string) {
 files.forEach((file: string) => {
 	const dest = file.replace('.original', '');
 
-	if (!isValid(fs.readFileSync(file, 'utf-8'))) return;
+	if (!isValid(fs.readFileSync(file, 'utf-8'))) {
+		console.log(c.bold.yellow(`! invalid source ${file}`));
+		return;
+	}
 
 	try {
 		const mod = new Module(file);

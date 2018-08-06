@@ -122,13 +122,13 @@ export default class Module {
 			else if (nodes = matchers.subclass(node)) {
 				const { target, superclass } = nodes;
 
-				const targetMatch = /^((THREE\.)?\w+)(\.prototype)?$/.exec(this.snip(target));
+				const targetMatch = /^((?:THREE\.)?\w+)(\.prototype)?$/.exec(this.snip(target));
 				assert.ok(!!targetMatch[2]);
 				const name = targetMatch[1];
 
 				assert.equal(name[0].toUpperCase(), name[0], 'not a class');
 
-				const superclassMatch = /^((THREE\.)?\w+)(\.prototype)?$/.exec(this.snip(superclass));
+				const superclassMatch = /^((?:THREE\.)?\w+)(\.prototype)?$/.exec(this.snip(superclass));
 				assert.ok(!!superclassMatch[2]);
 				const superclassName = superclassMatch[1];
 
@@ -148,7 +148,7 @@ export default class Module {
 
 			const { target, source } = nodes;
 
-			const match = /^((THREE\.)?\w+)(\.prototype)?$/.exec(this.snip(target));
+			const match = /^((?:THREE\.)?\w+)(\.prototype)?$/.exec(this.snip(target));
 			if (!match) return;
 
 			const name = match[1];
@@ -169,7 +169,7 @@ export default class Module {
 					// `foo: function()` -> `foo()`
 					let argsStart = prop.key.end;
 					while (this.source[argsStart] !== '(') argsStart += 1;
-					this.code.overwrite(prop.key.end, argsStart, ' ');
+					this.code.remove(prop.key.end, argsStart);
 
 					if (isStatic) {
 						this.code.overwrite(prop.key.start, prop.key.end, `static ${prop.key.name}`);
@@ -262,7 +262,7 @@ export default class Module {
 			while (this.code.original[start] !== '(') start += 1;
 
 			ctor = needsConstructor && (
-				`constructor ${this.code
+				`constructor${this.code
 					.slice(start, node.body.end)
 					.replace(/^\t/gm, '\t\t')
 					.replace(/^}/m, '\t}')}`
@@ -284,7 +284,7 @@ export default class Module {
 			return `\n\n${lhs} = ${prop.value.replace(/^\t/gm, '')};`;
 		});
 
-		const body = `{\n\t${combined}\n}`;
+		const body = `{\n\n\t${combined}\n\n}`;
 
 		this.code.overwrite(node.start, node.end, `${declaration} ${body}${properties.join('')}`);
 	}
@@ -326,7 +326,7 @@ export default class Module {
 			const snippet = code.original.slice(statement.start, statement.end);
 			if (/this/.test(snippet)) {
 				statements.push({
-					start: statement.start,
+					start: c,
 					end: statement.end,
 					content: code.original.slice(c, statement.end)
 				});
